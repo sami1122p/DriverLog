@@ -87,11 +87,14 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trip_data: routeData }),
       });
-      if (!res.ok) throw new Error('Failed to save trip');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || `HTTP ${res.status}: Failed to save trip`);
+      }
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
-      alert(err.message);
+      alert(err.message || 'Failed to save trip');
     } finally {
       setSaving(false);
     }
