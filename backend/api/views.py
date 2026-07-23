@@ -157,12 +157,20 @@ def calculate_trip(request):
     return JsonResponse(response_data)
 
 from .models import Trip
+from django.core.management import call_command
+
+def ensure_tables_exist():
+    try:
+        call_command('migrate', interactive=False)
+    except Exception as e:
+        print(f"Migration error in view: {e}")
 
 @csrf_exempt
 def save_trip(request):
     if request.method != 'POST':
         return JsonResponse({"error": "Only POST requests allowed"}, status=405)
     try:
+        ensure_tables_exist()
         data = json.loads(request.body)
         trip_data = data.get("trip_data")
         if not trip_data:
@@ -174,7 +182,12 @@ def save_trip(request):
         meta = trip_data.get("metadata", {})
         summary = trip_data.get("summary", {})
         
-        start_time_raw = trip_data.get("timeline", [{}])[0].get("start_time", datetime.now().isoformat())
+        timeline_list = trip_data.get("timeline") or []
+        if len(timeline_list) > 0 and isinstance(timeline_list[0], dict) and "start_time" in timeline_list[0]:
+            start_time_raw = timeline_list[0]["start_time"]
+        else:
+            start_time_raw = datetime.now().isoformat()
+
         try:
             start_time = datetime.fromisoformat(start_time_raw.replace('Z', ''))
         except Exception:
@@ -199,6 +212,7 @@ def save_trip(request):
         )
         return JsonResponse({"message": "Trip saved successfully", "id": trip.id})
     except Exception as e:
+        print(f"Error in save_trip: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
 @csrf_exempt
@@ -206,39 +220,51 @@ def list_trips(request):
     if request.method != 'GET':
         return JsonResponse({"error": "Only GET requests allowed"}, status=405)
     
-    trips = Trip.objects.all()
-    res = []
-    for t in trips:
-        res.append({
-            "id": t.id,
-            "current_location": t.current_location,
-            "pickup_location": t.pickup_location,
-            "dropoff_location": t.dropoff_location,
-            "driver_name": t.driver_name,
-            "total_miles": t.total_miles,
-            "total_hours": t.total_hours,
-            "created_at": t.created_at.strftime("%Y-%m-%d %H:%M"),
-        })
-    return JsonResponse({"trips": res})
+    try:
+        ensure_tables_exist()
+        trips = Trip.objects.all()
+        res = []
+        for t in trips:
+            res.append({
+                "id": t.id,
+                "current_location": t.current_location,
+                "pickup_location": t.pickup_location,
+                "dropoff_location": t.dropoff_location,
+                "driver_name": t.driver_name,
+                "total_miles": t.total_miles,
+                "total_hours": t.total_hours,
+                "created_at": t.created_at.strftime("%Y-%m-%d %H:%M"),
+            })
+        return JsonResponse({"trips": res})
+    except Exception as e:
+        print(f"Error in list_trips: {e}")
+        return JsonResponse({"trips": [], "error": str(e)})
 
 @csrf_exempt
 def get_trip(request, trip_id):
     try:
+        ensure_tables_exist()
         trip = Trip.objects.get(id=trip_id)
         data = json.loads(trip.full_data_json)
         data["id"] = trip.id
         return JsonResponse(data)
     except Trip.DoesNotExist:
         return JsonResponse({"error": "Trip not found"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
 
 @csrf_exempt
 def delete_trip(request, trip_id):
     if request.method != 'DELETE':
         return JsonResponse({"error": "Only DELETE requests allowed"}, status=405)
     try:
+        ensure_tables_exist()
         trip = Trip.objects.get(id=trip_id)
         trip.delete()
         return JsonResponse({"message": "Trip deleted successfully"})
     except Trip.DoesNotExist:
         return JsonResponse({"error": "Trip not found"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
 
